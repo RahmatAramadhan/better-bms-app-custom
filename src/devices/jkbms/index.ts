@@ -8,80 +8,14 @@ import {
   LiveData,
   ResponseDataTypeRecord,
   ResponseDataTypes,
-} from 'interfaces/data';
-import { DecodedResponseData } from 'interfaces/decoder';
-import {
-  ConnectOptions,
-  Device,
-  DeviceCallbacks,
-  DeviceIdentificator,
-  DeviceStatus,
-  DisconnectReasons,
-} from 'interfaces/device';
-import { CommandDefinition, ProtocolSpecification, ResponseDefinition } from 'interfaces/protocol';
-import { wait } from 'utils/index';
-import { bufferToHexString, intToHexString } from 'utils/binary';
-import { DeviceLog } from 'utils/logger';
-import { JKBMS_COMMANDS, JKBMS_PROTOCOL } from './config';
-
-export class JKBMS implements Device {
-  protocol!: DeepRequired<ProtocolSpecification<JKBMS_COMMANDS>>;
-  status!: DeviceStatus;
-  deviceIdenticator!: DeviceIdentificator | null;
-  callbacks: DeviceCallbacks;
-  decoder!: ResponseDecoder<JKBMS_COMMANDS>;
-  responseBuffer!: Uint8Array;
-  characteristic!: BluetoothRemoteGATTCharacteristic | null;
-  bluetoothDevice!: BluetoothDevice | null;
-  inactivityTimeout: ReturnType<typeof setTimeout> | null | undefined;
-  cache!: Partial<ResponseDataTypeRecord>;
-
-  constructor(callbacks: DeviceCallbacks) {
-    DeviceLog.info(`JK BMS initializing`, { callbacks });
-
-    this.decoder = new ResponseDecoder<JKBMS_COMMANDS>(JKBMS_PROTOCOL);
-    // @ts-ignore
-    this.protocol = this.decoder.getUnpackedProtocol();
-
-    DeviceLog.info(
-      `Using protocol ${this.protocol.name}
-    commands: [
-        ${Object.values(this.protocol.commands)
-          .map(({ name }) => name)
-          .join(', ')}
-    ]
-    responses: [
-        ${Object.values(this.protocol.responses)
-          .map(({ name }) => name)
-          .join(', ')}
-    ]
-`,
-      {
-        protocol: this.protocol,
-      }
-    );
-
-    this.callbacks = callbacks;
-
-    this.reset();
-
-    DeviceLog.log(`Device initialized`, this);
-  }
-
-  private reset(): void {
-    DeviceLog.log(`Resetting device`, this);
-    this.setStatus('disconnected');
-    this.deviceIdenticator = null;
-    this.cache = {};
-
-    this.characteristic = null;
-    this.bluetoothDevice = null;
-
-    clearTimeout(this.inactivityTimeout ?? undefined);
-    this.inactivityTimeout = null;
-
-    this.flushResponseBuffer();
-  }
+    if (matchedDevice) {
+      // Reconnect directly to the previously authorized device. Waiting for a
+      // fresh advertisement is unreliable after a page refresh on Android.
+      DeviceLog.info(`Using previously authorized device ${matchedDevice.name}`, {
+        matchedDevice,
+      });
+      return matchedDevice;
+    }
 
   private setStatus(newStatus: DeviceStatus): void {
     DeviceLog.log(`Status changed: ${this.status} -> ${newStatus}`, {

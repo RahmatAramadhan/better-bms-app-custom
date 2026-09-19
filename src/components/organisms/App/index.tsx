@@ -171,6 +171,7 @@ const App = () => {
       },
       onRequestDeviceError(error) {
         console.error(error);
+        setPreviousDevice(null);
         // setToast({
         //   type: 'error',
         //   text: error?.message,
@@ -193,6 +194,15 @@ const App = () => {
       newDevice.disconnect('reset');
     };
   }, [setStatus, setDevice]);
+
+  useEffect(() => {
+    const handlePageHide = () => {
+      void device?.disconnect('reset');
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
+    return () => window.removeEventListener('pagehide', handlePageHide);
+  }, [device]);
 
   const handleClickAnywhere = useCallback<MouseEventHandler>(
     (ev) => {

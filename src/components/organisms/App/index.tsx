@@ -43,7 +43,7 @@ const App = () => {
   const [measuredResistances, setMeasuredResistances] = useState<number[] | null>(null);
   const [resistanceCaptureActive, setResistanceCaptureActive] = useState(false);
   const captureBaseline = useRef<number[] | null>(null);
-  const captureSamples = useRef<{ currents: number[]; voltages: number[][] } | null>(null);
+  const captureSamples = useRef<Array<{ current: number; voltages: number[] }> | null>(null);
   const captureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [selectedScreen, setSelectedScreen] = useState<Screens>('Logs');
@@ -60,29 +60,34 @@ const App = () => {
     captureBaseline.current = null;
     captureSamples.current = null;
     setResistanceCaptureActive(false);
-    if (!baseline || !samples || !samples.currents.length || !samples.voltages.length) return;
+    if (!baseline || !samples || !samples.length) return;
 
-    const averageCurrent =
-      samples.currents.reduce((sum, current) => sum + current, 0) / samples.currents.length;
-    if (averageCurrent < 0.5) return;
-
-    const finalSamples = samples.voltages.slice(-5);
     const measured = baseline.map((before, cellIndex) => {
-      const valid = finalSamples
-        .map((sample) => sample[cellIndex])
-        .filter((voltage) => voltage > 0);
-      if (!before || !valid.length) return 0;
-      const after = valid.reduce((sum, voltage) => sum + voltage, 0) / valid.length;
-      return Math.max(0, ((before - after) / averageCurrent) * 1000);
+      if (!before) return 0;
+
+      // Pair each cell-voltage drop with the current from the same BMS frame.
+      // This avoids bias when the load current changes during the capture.
+      const resistanceSamples = samples
+        .slice(1) // discard the first post-switch frame while the MOSFET/load settles
+        .map((sample) => {
+          const after = sample.voltages[cellIndex];
+          const current = Math.abs(sample.current);
+          if (!after || current < 0.5 || after >= before) return null;
+          return ((before - after) / current) * 1000;
+        })
+        .filter((resistance): resistance is number => resistance !== null);
+
+      if (!resistanceSamples.length) return 0;
+      return resistanceSamples.reduce((sum, resistance) => sum + resistance, 0) / resistanceSamples.length;
     });
     setMeasuredResistances(measured);
-    UILog.info(`Resistance capture complete at ${averageCurrent.toFixed(2)} A`);
+    UILog.info(`Resistance capture complete from ${samples.length - 1} paired samples`);
   }, []);
 
   const startResistanceCapture = useCallback((baseline: number[]) => {
     if (captureTimer.current) clearTimeout(captureTimer.current);
     captureBaseline.current = baseline;
-    captureSamples.current = { currents: [], voltages: [] };
+    captureSamples.current = [];
     setResistanceCaptureActive(true);
     captureTimer.current = setTimeout(finishResistanceCapture, 5000);
   }, [finishResistanceCapture]);
@@ -101,8 +106,7 @@ const App = () => {
 
   useEffect(() => {
     if (!resistanceCaptureActive || !liveData || !captureSamples.current) return;
-    captureSamples.current.currents.push(Math.abs(liveData.current));
-    captureSamples.current.voltages.push([...liveData.voltages]);
+    captureSamples.current.push({ current: liveData.current, voltages: [...liveData.voltages] });
   }, [liveData, resistanceCaptureActive]);
 
   useEffect(() => () => {

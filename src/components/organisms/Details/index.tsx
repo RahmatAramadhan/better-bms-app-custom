@@ -69,7 +69,9 @@ const Details = ({ liveData, measuredResistances, resistanceCaptureActive }: Det
       </CellsGrid>
 
       {measuredResistances && (
-        <span>{resistanceCaptureActive ? 'Measuring resistance...' : 'Measured resistance (mOhm)'}</span>
+        <span>
+          {resistanceCaptureActive ? 'Measuring resistance...' : 'Measured DCIR (mOhm)'}
+        </span>
       )}
       <CellsGrid>
         {(measuredResistances || liveData.resistances)?.map((resistance, i) => (

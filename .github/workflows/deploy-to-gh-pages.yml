@@ -18,7 +18,7 @@ jobs:
           yarn install --frozen-lockfile
           CI=false yarn build
         env:
-          PUBLIC_URL: /better-bms-app
+          PUBLIC_URL: /better-bms-app-custom
 
       - name: Deploy 🚀
         uses: JamesIves/github-pages-deploy-action@v4

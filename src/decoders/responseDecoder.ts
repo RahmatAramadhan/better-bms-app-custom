@@ -114,6 +114,26 @@ export class ResponseDecoder<T extends string> implements Decoder<T> {
       DecodeLog.debug(bufferToHexString(responseBuffer));
       const decodedDataAcc: DecodedResponseData<T> = {};
 
+      if (responseType === 'LIVE_DATA' && responseBuffer.byteLength >= 162) {
+        const view = new DataView(
+          responseBuffer.buffer,
+          responseBuffer.byteOffset,
+          responseBuffer.byteLength
+        );
+
+        const hex = (offset: number) =>
+          Array.from(responseBuffer.slice(offset, offset + 4))
+            .map((byte) => byte.toString(16).padStart(2, '0'))
+            .join(' ');
+
+        const raw126 = view.getInt32(126, true);
+        const raw158 = view.getInt32(158, true);
+
+        DecodeLog.info(
+          `CURRENT DEBUG | 126: ${hex(126)} = ${(raw126 * 0.001).toFixed(3)} A | ` +
+          `158: ${hex(158)} = ${(raw158 * 0.001).toFixed(3)} A`
+        );
+      }
       for (const dataItem of responseDefinition.items) {
         currentDataItem = dataItem;
         const buffer = responseBuffer.slice(dataItem.offset, dataItem.offset + dataItem.byteLength);

@@ -32,7 +32,7 @@ const QuickToggles = ({
   const [discharge, setDischarge] = useState(false);
   const isLoading = useRef(true);
 
-  const isDisabled = !settingsData || status !== 'connected';
+  const isDisabled = status !== 'connected';
 
   useEffect(() => {
     if (settingsData) {
@@ -55,6 +55,8 @@ const QuickToggles = ({
           await device?.toggleCharging(value);
         } catch {
           setCharge(!value);
+        } finally {
+          isLoading.current = false;
         }
       } else {
         UILog.warn(`Device not ready for toggle`);
@@ -77,6 +79,8 @@ const QuickToggles = ({
           if (value) onDischargeCapture();
         } catch {
           setDischarge(!value);
+        } finally {
+          isLoading.current = false;
         }
       } else {
         UILog.warn(`Device not ready for toggle`);

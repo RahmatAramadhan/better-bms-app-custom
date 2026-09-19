@@ -24,7 +24,7 @@ const uptimeDecoder: GetterFunction = () => {
   return 1000 * 60 * 60 * 24;
 };
 
-const CELL_COUNT = 24;
+const CELL_COUNT = 32;
 
 export const JKBMS_PROTOCOL: PackedProtocolSpecification<JKBMS_COMMANDS> = {
   name: 'JK-BMS-02',
@@ -147,7 +147,7 @@ export const JKBMS_PROTOCOL: PackedProtocolSpecification<JKBMS_COMMANDS> = {
         [2, 'unknownSegments', 'raw', null],
         [2, 'unknownSegments', 'raw', null],
         [2, 'unknownSegments', 'raw', null],
-        [93, 'unknownSegments', 'raw', null],
+        [61, 'unknownSegments', 'raw', null],
       ],
     },
     {

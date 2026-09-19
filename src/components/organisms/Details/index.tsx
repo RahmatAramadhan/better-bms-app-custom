@@ -9,9 +9,11 @@ import { CellsGrid, DetailsContainer, InfoGrid } from './styles';
 
 type DetailsProps = {
   liveData: LiveData;
+  measuredResistances?: number[] | null;
+  resistanceCaptureActive?: boolean;
 };
 
-const Details = ({ liveData }: DetailsProps) => {
+const Details = ({ liveData, measuredResistances, resistanceCaptureActive }: DetailsProps) => {
   const lowestVol = useMemo(
     () => (liveData.voltages ? Math.min(...liveData.voltages.filter((v) => v !== 0)) : 0),
     [liveData]
@@ -66,8 +68,11 @@ const Details = ({ liveData }: DetailsProps) => {
         ))}
       </CellsGrid>
 
+      {measuredResistances && (
+        <span>{resistanceCaptureActive ? 'Measuring resistance...' : 'Measured resistance (mOhm)'}</span>
+      )}
       <CellsGrid>
-        {liveData.resistances?.map((resistance, i) => (
+        {(measuredResistances || liveData.resistances)?.map((resistance, i) => (
           <span key={i}>
             {`${String(i + 1).padStart(2, '0')}: ${
               resistance ? resistance.toFixed(3) : '\xa0-\xa0\xa0\xa0\xa0\xa0\xa0\xa0\xa0'

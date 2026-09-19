@@ -40,6 +40,11 @@ const App = () => {
   const liveDataRef = useLatest(liveData);
   const [deviceInfoData, setDeviceInfoData] = useState<DeviceInfoData | null>(null);
   const [settingsData, setSettingsData] = useState<SettingsData | null>(null);
+  const [measuredResistances, setMeasuredResistances] = useState<number[] | null>(null);
+  const [resistanceCaptureActive, setResistanceCaptureActive] = useState(false);
+  const captureBaseline = useRef<number[] | null>(null);
+  const captureSamples = useRef<{ currents: number[]; voltages: number[][] } | null>(null);
+  const captureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [selectedScreen, setSelectedScreen] = useState<Screens>('Logs');
 
@@ -48,6 +53,61 @@ const App = () => {
     speed.current = newSpeed;
   }, []);
   useWatchSpeed({ onChange: handleNewSpeed });
+
+  const finishResistanceCapture = useCallback(() => {
+    const baseline = captureBaseline.current;
+    const samples = captureSamples.current;
+    captureBaseline.current = null;
+    captureSamples.current = null;
+    setResistanceCaptureActive(false);
+    if (!baseline || !samples || !samples.currents.length || !samples.voltages.length) return;
+
+    const averageCurrent =
+      samples.currents.reduce((sum, current) => sum + current, 0) / samples.currents.length;
+    if (averageCurrent < 0.5) return;
+
+    const finalSamples = samples.voltages.slice(-5);
+    const measured = baseline.map((before, cellIndex) => {
+      const valid = finalSamples
+        .map((sample) => sample[cellIndex])
+        .filter((voltage) => voltage > 0);
+      if (!before || !valid.length) return 0;
+      const after = valid.reduce((sum, voltage) => sum + voltage, 0) / valid.length;
+      return Math.max(0, ((before - after) / averageCurrent) * 1000);
+    });
+    setMeasuredResistances(measured);
+    UILog.info(`Resistance capture complete at ${averageCurrent.toFixed(2)} A`);
+  }, []);
+
+  const startResistanceCapture = useCallback((baseline: number[]) => {
+    if (captureTimer.current) clearTimeout(captureTimer.current);
+    captureBaseline.current = baseline;
+    captureSamples.current = { currents: [], voltages: [] };
+    setResistanceCaptureActive(true);
+    captureTimer.current = setTimeout(finishResistanceCapture, 5000);
+  }, [finishResistanceCapture]);
+
+  const prepareDischargeCapture = useCallback(() => {
+    if (liveData?.voltages) captureBaseline.current = [...liveData.voltages];
+  }, [liveData]);
+
+  const startPreparedDischargeCapture = useCallback(() => {
+    if (captureBaseline.current) startResistanceCapture(captureBaseline.current);
+  }, [startResistanceCapture]);
+
+  const captureResistanceAgain = useCallback(() => {
+    if (liveData?.voltages) startResistanceCapture([...liveData.voltages]);
+  }, [liveData, startResistanceCapture]);
+
+  useEffect(() => {
+    if (!resistanceCaptureActive || !liveData || !captureSamples.current) return;
+    captureSamples.current.currents.push(Math.abs(liveData.current));
+    captureSamples.current.voltages.push([...liveData.voltages]);
+  }, [liveData, resistanceCaptureActive]);
+
+  useEffect(() => () => {
+    if (captureTimer.current) clearTimeout(captureTimer.current);
+  }, []);
 
   useEffect(() => {
     UILog.info('App rendered');
@@ -151,7 +211,16 @@ const App = () => {
     <DataLoggerProvider liveData={liveData} additionalData={additionalDataLoggerData}>
       <AppContainer onClick={handleClickAnywhere}>
         <TopBar deviceInfoData={deviceInfoData} liveData={liveData} />
-        {status === 'connected' && <QuickToggles settingsData={settingsData} />}
+        {status === 'connected' && (
+          <QuickToggles
+            settingsData={settingsData}
+            onDischargePrepare={prepareDischargeCapture}
+            onDischargeCapture={startPreparedDischargeCapture}
+            onCaptureResistance={captureResistanceAgain}
+            captureActive={resistanceCaptureActive}
+            captureReady={Boolean(liveData?.voltages)}
+          />
+        )}
 
         <ContentContainer>
           <Freeze freeze={selectedScreen !== 'Logs'}>
@@ -164,7 +233,11 @@ const App = () => {
                 <Summary liveData={liveData} speed={speed.current} />
               </Freeze>
               <Freeze freeze={selectedScreen !== 'Details'}>
-                <Details liveData={liveData} />
+                <Details
+                  liveData={liveData}
+                  measuredResistances={measuredResistances}
+                  resistanceCaptureActive={resistanceCaptureActive}
+                />
               </Freeze>
             </>
           ) : (

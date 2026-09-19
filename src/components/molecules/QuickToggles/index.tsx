@@ -1,7 +1,7 @@
 import { memo, MouseEventHandler, useState } from 'react';
 import { SettingsData } from 'interfaces/data';
 import { useDevice } from 'components/providers/DeviceProvider';
-import { QuickTogglesContainer, ToggleLabel, ToggleWithLabel } from './styles';
+import { CaptureButton, QuickTogglesContainer, ToggleLabel, ToggleWithLabel } from './styles';
 import { useEffect } from 'react';
 import { useCallback } from 'react';
 import { Toggle } from '@geist-ui/core';
@@ -11,9 +11,21 @@ import { ToggleEvent } from '@geist-ui/core/esm/toggle';
 
 type QuickTogglesProps = {
   settingsData: SettingsData | null;
+  onDischargePrepare: () => void;
+  onDischargeCapture: () => void;
+  onCaptureResistance: () => void;
+  captureActive: boolean;
+  captureReady: boolean;
 };
 
-const QuickToggles = ({ settingsData }: QuickTogglesProps) => {
+const QuickToggles = ({
+  settingsData,
+  onDischargePrepare,
+  onDischargeCapture,
+  onCaptureResistance,
+  captureActive,
+  captureReady,
+}: QuickTogglesProps) => {
   const { status, device } = useDevice();
 
   const [charge, setCharge] = useState(false);
@@ -60,7 +72,9 @@ const QuickToggles = ({ settingsData }: QuickTogglesProps) => {
         setDischarge(value);
 
         try {
+          if (value) onDischargePrepare();
           await device?.toggleDischarging(value);
+          if (value) onDischargeCapture();
         } catch {
           setDischarge(!value);
         }
@@ -68,7 +82,7 @@ const QuickToggles = ({ settingsData }: QuickTogglesProps) => {
         UILog.warn(`Device not ready for toggle`);
       }
     },
-    [device]
+    [device, onDischargeCapture, onDischargePrepare]
   );
 
   const blockInputIfLoading = useCallback<MouseEventHandler>((ev) => {
@@ -103,6 +117,15 @@ const QuickToggles = ({ settingsData }: QuickTogglesProps) => {
           type='error'
         />
       </ToggleWithLabel>
+      {discharge && (
+        <CaptureButton
+          type='button'
+          onClick={onCaptureResistance}
+          disabled={isDisabled || captureActive || !captureReady}
+        >
+          {captureActive ? 'Measuring...' : 'Capture resistance'}
+        </CaptureButton>
+      )}
     </QuickTogglesContainer>
   );
 };

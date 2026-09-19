@@ -30,3 +30,18 @@ export const ToggleWithLabel = styled.div`
     }
   }
 `;
+
+export const CaptureButton = styled.button`
+  border: 1px solid ${({ theme }) => theme.accents_7};
+  border-radius: 6px;
+  background: transparent;
+  color: ${({ theme }) => theme.accents_7};
+  padding: 4px 8px;
+  font: inherit;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+`;

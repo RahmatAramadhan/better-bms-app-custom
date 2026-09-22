@@ -477,74 +477,56 @@ import {
         DeviceLog.debug(`Segment header detected`);
         this.flushResponseBuffer();
         this.responseBuffer = valueArray;
+      } else if (this.doesStartWithSegmentHeader(this.responseBuffer)) {
+        this.responseBuffer = new Uint8Array([...this.responseBuffer, ...valueArray]);
       } else {
-        // responseBuffer should always start with segment header or have 0 length
-        if (this.doesStartWithSegmentHeader(this.responseBuffer)) {
-          DeviceLog.debug(
-            `Appending frame to previous segment. Total length ${
-              this.responseBuffer.byteLength + valueArray.byteLength
-            }`,
-            { responseBuffer: this.responseBuffer, valueArray }
-          );
-
-          this.responseBuffer = new Uint8Array([...this.responseBuffer, ...valueArray]);
-        } else {
-          DeviceLog.warn(`Segment header must come first in the response. Ignoring frame`, {
-            responseBuffer: this.responseBuffer,
-            valueArray,
-          });
-          return;
-        }
-      }
-
-      const segmentType = this.getSegmentType(this.responseBuffer);
-
-      const expectedSegments = this.protocol.responses.map(
-        (responseDefinition) => responseDefinition.signature[0]
-      );
-
-      if (!expectedSegments.includes(segmentType)) {
-        DeviceLog.warn(`Unexpected segment type ${intToHexString(segmentType, '0x')}`);
-
+        DeviceLog.warn(`Segment header must come first in the response. Ignoring frame`, {
+          responseBuffer: this.responseBuffer,
+          valueArray,
+        });
         return;
       }
 
-      const responseDefinition = this.protocol.getResponseBySignature(
-        new Uint8Array([segmentType])
-      )!;
-
-      if (this.isSegmentComplete(this.responseBuffer, responseDefinition)) {
-        if (!this.isChecksumCorrect(this.responseBuffer)) {
-          DeviceLog.warn(`Segment corrupted. Flushing ${responseDefinition.name}`, {
-            responseBuffer: this.responseBuffer,
-          });
+      // A notification can contain the tail of one frame plus the beginning of
+      // the next. Consume exact frames and keep any remainder for the next pass.
+      while (this.responseBuffer.byteLength >= 6) {
+        const segmentType = this.getSegmentType(this.responseBuffer);
+        const responseDefinition = this.protocol.getResponseBySignature(
+          new Uint8Array([segmentType])
+        );
+        if (!responseDefinition) {
+          DeviceLog.warn(`Unexpected segment type ${intToHexString(segmentType, '0x')}`);
           this.flushResponseBuffer();
           return;
+        }
+        if (this.responseBuffer.byteLength < responseDefinition.length) {
+          DeviceLog.debug(`Segment not complete. Waiting for more data`);
+          return;
+        }
+
+        const segment = this.responseBuffer.slice(0, responseDefinition.length);
+        const remainder = this.responseBuffer.slice(responseDefinition.length);
+        this.responseBuffer = remainder;
+
+        if (!this.isChecksumCorrect(segment)) {
+          DeviceLog.warn(`Segment corrupted. Flushing ${responseDefinition.name}`, {
+            responseBuffer: segment,
+          });
+          if (!this.doesStartWithSegmentHeader(remainder)) this.flushResponseBuffer();
+          continue;
         }
 
         try {
-          DeviceLog.debug(`Segment complete and valid. Decoding ${responseDefinition.name}`, {
-            responseBuffer: this.responseBuffer,
-          });
-
           const decodedData = this.decoder!.decode(
             responseDefinition.dataType,
             new Uint8Array([segmentType]),
-            this.responseBuffer
+            segment
           );
-
           this.handleDecodedData(responseDefinition.dataType, decodedData);
-
-          this.flushResponseBuffer();
         } catch (error) {
           console.error(error);
-          DeviceLog.error(`${responseDefinition.name} data decode or handle failed`, {
-            error,
-          });
-          return;
+          DeviceLog.error(`${responseDefinition.name} data decode or handle failed`, { error });
         }
-      } else {
-        DeviceLog.debug(`Segment not complete. Waiting for more data`);
       }
     } catch (error) {
       console.error(error);

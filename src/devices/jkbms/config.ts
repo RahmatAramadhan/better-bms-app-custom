@@ -69,7 +69,7 @@ export const JKBMS_PROTOCOL: PackedProtocolSpecification<JKBMS_COMMANDS> = {
       dataType: 'DEVICE_INFO',
       command: JKBMS_COMMANDS.GET_DEVICE_INFO,
       signature: new Uint8Array([0x03]),
-      length: 300,
+      length: 304,
       items: [
         ...responseHeaderWithTypeAndCounter,
         [16, 'model', 'ASCII'],
@@ -85,14 +85,14 @@ export const JKBMS_PROTOCOL: PackedProtocolSpecification<JKBMS_COMMANDS> = {
         [5, 'passcode', 'ASCII'],
         [16, 'userData', 'ASCII'],
         [16, 'settingsPassword', 'ASCII'],
-        [166, 'unknownSegments', 'raw', null],
+        [170, 'unknownSegments', 'raw', null],
       ],
     },
     {
       name: 'LIVE_DATA',
       dataType: 'LIVE_DATA',
       signature: new Uint8Array([0x02]),
-      length: 300,
+      length: 304,
       items: [
         ...responseHeaderWithTypeAndCounter,
         ...Array.from(Array(CELL_COUNT)).map<PackedItemDescription<'LIVE_DATA'>>(() => [
@@ -147,14 +147,14 @@ export const JKBMS_PROTOCOL: PackedProtocolSpecification<JKBMS_COMMANDS> = {
         [2, 'unknownSegments', 'raw', null],
         [2, 'unknownSegments', 'raw', null],
         [2, 'unknownSegments', 'raw', null],
-        [61, 'unknownSegments', 'raw', null],
+        [65, 'unknownSegments', 'raw', null],
       ],
     },
     {
       name: 'SETTINGS',
       dataType: 'SETTINGS',
       signature: new Uint8Array([0x01]),
-      length: 300,
+      length: 304,
       items: [
         ...responseHeaderWithTypeAndCounter,
         [2, 'unknownSegments', 'raw', null],
@@ -164,7 +164,7 @@ export const JKBMS_PROTOCOL: PackedProtocolSpecification<JKBMS_COMMANDS> = {
         [1, 'discharge', 'boolean'],
         [3, 'unknownSegments', 'raw', null],
         [1, 'balance', 'boolean'],
-        [173, 'unknownSegments', 'raw', null],
+        [177, 'unknownSegments', 'raw', null],
       ],
     },
   ],

@@ -499,22 +499,36 @@ import {
           this.flushResponseBuffer();
           return;
         }
-        if (this.responseBuffer.byteLength < responseDefinition.length) {
+        const shortestResponseLength = responseDefinition.length - 4;
+        if (this.responseBuffer.byteLength < shortestResponseLength) {
           DeviceLog.debug(`Segment not complete. Waiting for more data`);
           return;
         }
 
-        const segment = this.responseBuffer.slice(0, responseDefinition.length);
-        const remainder = this.responseBuffer.slice(responseDefinition.length);
-        this.responseBuffer = remainder;
+        const possibleLengths = [responseDefinition.length, shortestResponseLength];
+        const segmentLength = possibleLengths.find(
+          (length) =>
+            this.responseBuffer.byteLength >= length &&
+            this.isChecksumCorrect(this.responseBuffer.slice(0, length))
+        );
 
-        if (!this.isChecksumCorrect(segment)) {
-          DeviceLog.warn(`Segment corrupted. Flushing ${responseDefinition.name}`, {
-            responseBuffer: segment,
+        if (!segmentLength) {
+          if (this.responseBuffer.byteLength < responseDefinition.length) {
+            DeviceLog.debug(`Segment not complete. Waiting for more data`);
+            return;
+          }
+
+          DeviceLog.warn(`Segment checksum invalid at supported frame lengths`, {
+            responseBuffer: this.responseBuffer,
+            responseDefinition,
           });
-          if (!this.doesStartWithSegmentHeader(remainder)) this.flushResponseBuffer();
-          continue;
+          this.flushResponseBuffer();
+          return;
         }
+
+        const segment = this.responseBuffer.slice(0, segmentLength);
+        const remainder = this.responseBuffer.slice(segmentLength);
+        this.responseBuffer = remainder;
 
         try {
           const decodedData = this.decoder!.decode(
@@ -543,7 +557,7 @@ import {
       { buffer, header: this.protocol.segmentHeader }
     );
     return (
-      buffer.byteLength > this.protocol.segmentHeader.byteLength &&
+      buffer.byteLength >= this.protocol.segmentHeader.byteLength &&
       this.protocol.segmentHeader.every((value, i) => value === buffer[i])
     );
   }

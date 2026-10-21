@@ -2,18 +2,20 @@ import classNames from 'classnames';
 import React, { memo, useMemo } from 'react';
 import { ErrorBoundary } from 'react-error-boundary';
 import { liveDataUIConfig } from 'config/uiConfig';
-import { LiveData } from 'interfaces/data';
+import { DcirMeasurement, LiveData } from 'interfaces/data';
 import { formatValue } from 'utils/formatValue';
 import LineChart from 'components/molecules/LineChart';
-import { CellsGrid, DetailsContainer, InfoGrid } from './styles';
+import { CellsGrid, DetailsContainer, InfoGrid, SectionNote, SectionTitle } from './styles';
 
 type DetailsProps = {
   liveData: LiveData;
-  measuredResistances?: number[] | null;
+  dcir?: DcirMeasurement | null;
   resistanceCaptureActive?: boolean;
 };
 
-const Details = ({ liveData, measuredResistances, resistanceCaptureActive }: DetailsProps) => {
+const EMPTY_VALUE = '\xa0-\xa0\xa0\xa0\xa0\xa0\xa0\xa0\xa0';
+
+const Details = ({ liveData, dcir, resistanceCaptureActive }: DetailsProps) => {
   const lowestVol = useMemo(
     () => (liveData.voltages ? Math.min(...liveData.voltages.filter((v) => v !== 0)) : 0),
     [liveData]
@@ -22,6 +24,17 @@ const Details = ({ liveData, measuredResistances, resistanceCaptureActive }: Det
     () => (liveData.voltages ? Math.max(...liveData.voltages) : 0),
     [liveData]
   );
+
+  const dcirStats = useMemo(() => {
+    const measured = dcir?.values.filter((v) => v > 0) ?? [];
+    if (!dcir || !measured.length) return null;
+
+    return {
+      average: measured.reduce((sum, v) => sum + v, 0) / measured.length,
+      lowest: Math.min(...measured),
+      highest: Math.max(...measured),
+    };
+  }, [dcir]);
 
   return (
     <DetailsContainer>
@@ -68,20 +81,61 @@ const Details = ({ liveData, measuredResistances, resistanceCaptureActive }: Det
         ))}
       </CellsGrid>
 
-      {measuredResistances && (
-        <span>
-          {resistanceCaptureActive ? 'Measuring resistance...' : 'Measured DCIR (mOhm)'}
-        </span>
+      <SectionTitle>{'DCIR (mΩ)'}</SectionTitle>
+      {dcir ? (
+        <>
+          <SectionNote>
+            {resistanceCaptureActive
+              ? 'Measuring...'
+              : `(V0 − V${Math.round(dcir.sampleDelay)}ms) / I${Math.round(
+                  dcir.sampleDelay
+                )}ms · ${dcir.current.toFixed(1)}A`}
+            {dcirStats && !resistanceCaptureActive
+              ? ` · avg ${dcirStats.average.toFixed(2)} mΩ`
+              : ''}
+          </SectionNote>
+          <CellsGrid>
+            {dcir.values.map((value, i) => (
+              <span
+                key={i}
+                className={classNames(
+                  dcirStats &&
+                    dcirStats.highest !== dcirStats.lowest &&
+                    value > 0 &&
+                    (value === dcirStats.highest
+                      ? 'highest'
+                      : value === dcirStats.lowest
+                      ? 'lowest'
+                      : '')
+                )}
+              >
+                {`${String(i + 1).padStart(2, '0')}: ${value ? value.toFixed(2) : EMPTY_VALUE}`}
+              </span>
+            ))}
+          </CellsGrid>
+        </>
+      ) : (
+        <SectionNote>
+          {resistanceCaptureActive
+            ? 'Measuring...'
+            : 'Not measured yet. Switch Discharge on or tap Capture resistance.'}
+        </SectionNote>
       )}
-      <CellsGrid>
-        {(measuredResistances || liveData.resistances)?.map((resistance, i) => (
-          <span key={i}>
-            {`${String(i + 1).padStart(2, '0')}: ${
-              resistance ? resistance.toFixed(3) : '\xa0-\xa0\xa0\xa0\xa0\xa0\xa0\xa0\xa0'
-            }`}
-          </span>
-        ))}
-      </CellsGrid>
+
+      {liveData.resistances && (
+        <>
+          <SectionTitle>{'Wire resistance (BMS, Ω)'}</SectionTitle>
+          <CellsGrid>
+            {liveData.resistances.map((resistance, i) => (
+              <span key={i}>
+                {`${String(i + 1).padStart(2, '0')}: ${
+                  resistance ? resistance.toFixed(3) : EMPTY_VALUE
+                }`}
+              </span>
+            ))}
+          </CellsGrid>
+        </>
+      )}
     </DetailsContainer>
   );
 };

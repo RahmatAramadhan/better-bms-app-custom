@@ -49,3 +49,20 @@ export const CellsGrid = styled.div`
     color: ${({ theme }) => theme.success};
   }
 `;
+
+export const SectionTitle = styled.h4`
+  width: 100%;
+  margin: 8px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  color: ${({ theme }) => theme.accents_5};
+`;
+
+export const SectionNote = styled.p`
+  width: 100%;
+  margin: 4px 0 0;
+  font-size: 13px;
+  text-align: center;
+  color: ${({ theme }) => theme.accents_5};
+`;

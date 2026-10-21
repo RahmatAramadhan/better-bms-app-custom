@@ -6,7 +6,7 @@ import { PREVIOUS_DEVICE_LOCAL_STORAGE_KEY } from 'config/index';
 import { JKBMS } from 'devices/jkbms';
 import { DEMO_MODE, MockBMS } from 'devices/mock';
 import { useWakelock } from 'hooks/useWakelock';
-import { DeviceInfoData, LiveData, SettingsData } from 'interfaces/data';
+import { DcirMeasurement, DeviceInfoData, LiveData, SettingsData } from 'interfaces/data';
 import { DeviceIdentificator } from 'interfaces/device';
 import { UILog } from 'utils/logger';
 import BottomNavigation from 'components/molecules/BottomNavigation';
@@ -23,6 +23,11 @@ import useWatchSpeed from 'hooks/useWatchSpeed';
 import { useRef } from 'react';
 import { Units } from 'interfaces';
 import { useMemo } from 'react';
+
+// Time after the load is applied at which V and I are sampled for DCIR
+const DCIR_SAMPLE_DELAY = 200;
+// Give up if no frame arrives
+const DCIR_CAPTURE_TIMEOUT = 3000;
 
 export type Screens = 'Logs' | 'Summary' | 'Settings' | 'Details';
 
@@ -41,10 +46,13 @@ const App = () => {
   const liveDataRef = useLatest(liveData);
   const [deviceInfoData, setDeviceInfoData] = useState<DeviceInfoData | null>(null);
   const [settingsData, setSettingsData] = useState<SettingsData | null>(null);
-  const [measuredResistances, setMeasuredResistances] = useState<number[] | null>(null);
+  const [dcirMeasurement, setDcirMeasurement] = useState<DcirMeasurement | null>(null);
   const [resistanceCaptureActive, setResistanceCaptureActive] = useState(false);
   const captureBaseline = useRef<number[] | null>(null);
-  const captureSamples = useRef<Array<{ current: number; voltages: number[] }> | null>(null);
+  const captureSamples = useRef<
+    Array<{ timestamp: number; current: number; voltages: number[] }> | null
+  >(null);
+  const captureStartedAt = useRef<number>(0);
   const captureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [selectedScreen, setSelectedScreen] = useState<Screens>('Logs');
@@ -60,38 +68,43 @@ const App = () => {
     const samples = captureSamples.current;
     captureBaseline.current = null;
     captureSamples.current = null;
+    if (captureTimer.current) clearTimeout(captureTimer.current);
+    captureTimer.current = null;
     setResistanceCaptureActive(false);
     if (!baseline || !samples || !samples.length) return;
 
-    const measured = baseline.map((before, cellIndex) => {
-      if (!before) return 0;
+    // DCIR = (V0 - V@200ms) / I@200ms, using the BMS frame closest to 200ms after the load was applied.
+    const startedAt = captureStartedAt.current;
+    const sample = samples.reduce((best, candidate) =>
+      Math.abs(candidate.timestamp - startedAt - DCIR_SAMPLE_DELAY) <
+      Math.abs(best.timestamp - startedAt - DCIR_SAMPLE_DELAY)
+        ? candidate
+        : best
+    );
+    const current = Math.abs(sample.current);
 
-      // Pair each cell-voltage drop with the current from the same BMS frame.
-      // This avoids bias when the load current changes during the capture.
-      const resistanceSamples = samples
-        .slice(1) // discard the first post-switch frame while the MOSFET/load settles
-        .map((sample) => {
-          const after = sample.voltages[cellIndex];
-          const current = Math.abs(sample.current);
-          if (!after || current < 0.5 || after >= before) return null;
-          return ((before - after) / current) * 1000;
-        })
-        .filter((resistance): resistance is number => resistance !== null);
-
-      if (!resistanceSamples.length) return 0;
-      return resistanceSamples.reduce((sum, resistance) => sum + resistance, 0) / resistanceSamples.length;
+    const values = baseline.map((before, cellIndex) => {
+      const after = sample.voltages[cellIndex];
+      if (!before || !after || current < 0.5 || after >= before) return 0;
+      return ((before - after) / current) * 1000;
     });
-    setMeasuredResistances(measured);
-    UILog.info(`Resistance capture complete from ${samples.length - 1} paired samples`);
+
+    const sampleDelay = sample.timestamp - startedAt;
+    setDcirMeasurement({ values, sampleDelay, current, measuredAt: Date.now() });
+    UILog.info(`DCIR captured from frame ${sampleDelay}ms after load, ${current.toFixed(2)}A`);
   }, []);
 
-  const startResistanceCapture = useCallback((baseline: number[]) => {
-    if (captureTimer.current) clearTimeout(captureTimer.current);
-    captureBaseline.current = baseline;
-    captureSamples.current = [];
-    setResistanceCaptureActive(true);
-    captureTimer.current = setTimeout(finishResistanceCapture, 5000);
-  }, [finishResistanceCapture]);
+  const startResistanceCapture = useCallback(
+    (baseline: number[]) => {
+      if (captureTimer.current) clearTimeout(captureTimer.current);
+      captureBaseline.current = baseline;
+      captureSamples.current = [];
+      captureStartedAt.current = Date.now();
+      setResistanceCaptureActive(true);
+      captureTimer.current = setTimeout(finishResistanceCapture, DCIR_CAPTURE_TIMEOUT);
+    },
+    [finishResistanceCapture]
+  );
 
   // Read through the ref so these callbacks stay stable and don't re-render QuickToggles per frame
   const prepareDischargeCapture = useCallback(() => {
@@ -110,8 +123,20 @@ const App = () => {
 
   useEffect(() => {
     if (!resistanceCaptureActive || !liveData || !captureSamples.current) return;
-    captureSamples.current.push({ current: liveData.current, voltages: [...liveData.voltages] });
-  }, [liveData, resistanceCaptureActive]);
+    // Ignore the frame that was already on screen when the capture started
+    if (liveData.timestamp < captureStartedAt.current) return;
+
+    captureSamples.current.push({
+      timestamp: liveData.timestamp,
+      current: liveData.current,
+      voltages: [...liveData.voltages],
+    });
+
+    // First frame at/after 200ms: the closest one is either this or the previous one
+    if (liveData.timestamp - captureStartedAt.current >= DCIR_SAMPLE_DELAY) {
+      finishResistanceCapture();
+    }
+  }, [liveData, resistanceCaptureActive, finishResistanceCapture]);
 
   useEffect(() => () => {
     if (captureTimer.current) clearTimeout(captureTimer.current);
@@ -254,7 +279,7 @@ const App = () => {
               <Freeze freeze={selectedScreen !== 'Details'}>
                 <Details
                   liveData={liveData}
-                  measuredResistances={measuredResistances}
+                  dcir={dcirMeasurement}
                   resistanceCaptureActive={resistanceCaptureActive}
                 />
               </Freeze>

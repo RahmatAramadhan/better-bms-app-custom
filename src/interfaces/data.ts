@@ -72,6 +72,17 @@ export type LiveData = CommonData & {
   unknownSegments?: UnknowDataSegment[];
 };
 
+// Result of a DCIR capture: (V0 - V@delay) / I@delay, per cell
+export type DcirMeasurement = {
+  // mOhm per cell, 0 = couldn't be measured
+  values: Units['ohms'][];
+  // Actual time between load being applied and the sample used
+  sampleDelay: Units['miliseconds'];
+  // Load current of the sample used
+  current: Units['amps'];
+  measuredAt: Units['miliseconds'];
+};
+
 export type SettingsData = CommonData & {
   charge: boolean;
   discharge: boolean;

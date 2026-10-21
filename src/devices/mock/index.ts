@@ -35,6 +35,8 @@ export class MockBMS implements Device {
   private remainingCapacity = NOMINAL_CAPACITY * 0.82;
   private settings = { charge: true, discharge: true };
   private cellOffsets = Array.from({ length: CELL_COUNT }, () => noise(0.004));
+  // Internal resistance per cell in ohms (~1.2 - 2.4 mOhm)
+  private cellResistances = Array.from({ length: CELL_COUNT }, () => 0.0018 + noise(0.0006));
 
   constructor(callbacks: DeviceCallbacks) {
     this.callbacks = callbacks;
@@ -136,8 +138,9 @@ export class MockBMS implements Device {
     const percentage = Math.round((this.remainingCapacity / NOMINAL_CAPACITY) * 100);
 
     const restCell = 3.2 + (percentage / 100) * 0.9;
-    const sag = current * 0.0016;
-    const voltages = this.cellOffsets.map((offset) => +(restCell - sag + offset).toFixed(3));
+    const voltages = this.cellOffsets.map(
+      (offset, i) => +(restCell - current * this.cellResistances[i] + offset).toFixed(4)
+    );
     const voltage = voltages.reduce((sum, v) => sum + v, 0);
     const min = Math.min(...voltages);
     const max = Math.max(...voltages);

@@ -4,6 +4,7 @@ import { Freeze } from 'react-freeze';
 import { useLatest, useLocalStorage } from 'react-use';
 import { PREVIOUS_DEVICE_LOCAL_STORAGE_KEY } from 'config/index';
 import { JKBMS } from 'devices/jkbms';
+import { DEMO_MODE, MockBMS } from 'devices/mock';
 import { useWakelock } from 'hooks/useWakelock';
 import { DeviceInfoData, LiveData, SettingsData } from 'interfaces/data';
 import { DeviceIdentificator } from 'interfaces/device';
@@ -119,7 +120,8 @@ const App = () => {
   useEffect(() => {
     UILog.info('App rendered');
 
-    const newDevice = new JKBMS({
+    const DeviceClass = DEMO_MODE ? MockBMS : JKBMS;
+    const newDevice = new DeviceClass({
       onDataReceived(dataType, newData) {
         switch (dataType) {
           case 'LIVE_DATA': {
@@ -145,7 +147,7 @@ const App = () => {
         }
       },
       async onConnected(deviceIdentificator) {
-        setPreviousDevice(deviceIdentificator);
+        if (!DEMO_MODE) setPreviousDevice(deviceIdentificator);
         acquireWakelock();
         setSelectedScreen('Summary');
       },

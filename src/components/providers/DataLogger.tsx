@@ -8,7 +8,9 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
+  MutableRefObject,
 } from 'react';
 import { GlobalLog } from 'utils/logger';
 import { useDevice } from './DeviceProvider';
@@ -38,8 +40,14 @@ export type LiveDataDatum =
       })
   | null;
 
+export type DataLoggerEvent = 'append' | 'replace';
+
 export type DataLoggerContextType = {
-  liveDataLog: LiveDataDatum[];
+  // Mutable on purpose. Never put it in React state, it can hold up to LOG_LIMIT items.
+  // Items are only appended (or trimmed from the front) in place; any other change
+  // swaps the array and emits 'replace'.
+  logRef: MutableRefObject<LiveDataDatum[]>;
+  subscribe: (listener: (event: DataLoggerEvent) => void) => () => void;
   // null = not started since last reset
   isPaused: boolean | null;
   stop: () => void;
@@ -47,11 +55,12 @@ export type DataLoggerContextType = {
   reset: () => void;
 };
 
-const emptyLiveDataLog: LiveDataDatum[] = [];
+const emptyLogRef: MutableRefObject<LiveDataDatum[]> = { current: [] };
 
 // @ts-expect-error
 const DataLoggerContext = createContext<DataLoggerContextType>({
-  liveDataLog: emptyLiveDataLog,
+  logRef: emptyLogRef,
+  subscribe: () => () => undefined,
   isPaused: null,
 });
 
@@ -72,14 +81,31 @@ const DataLoggerProvider = ({
 }: DataLoggerProviderProps) => {
   const { status } = useDevice();
 
-  const [liveDataLog, setLiveDataLog] =
-    useState<DataLoggerContextType['liveDataLog']>(emptyLiveDataLog);
+  const logRef = useRef<LiveDataDatum[]>([]);
+  const listenersRef = useRef(new Set<(event: DataLoggerEvent) => void>());
+  // Only flips on first datum / reset, so provider doesn't re-render per frame
+  const [hasData, setHasData] = useState(false);
   const [pauseTimestamp, setPauseTimestamp] = useState<Units['miliseconds'] | null>(null);
+  const pauseTimestampRef = useRef(pauseTimestamp);
+  pauseTimestampRef.current = pauseTimestamp;
+
+  const emit = useCallback((event: DataLoggerEvent) => {
+    listenersRef.current.forEach((listener) => listener(event));
+  }, []);
+
+  const subscribe = useCallback<DataLoggerContextType['subscribe']>((listener) => {
+    listenersRef.current.add(listener);
+    return () => {
+      listenersRef.current.delete(listener);
+    };
+  }, []);
 
   const reset = useCallback(() => {
-    setLiveDataLog(emptyLiveDataLog);
+    logRef.current = [];
+    setHasData(false);
     setPauseTimestamp(null);
-  }, [setLiveDataLog]);
+    emit('replace');
+  }, [emit]);
 
   const stop = useCallback(() => {
     setPauseTimestamp((current) => {
@@ -95,47 +121,43 @@ const DataLoggerProvider = ({
   }, [setPauseTimestamp]);
 
   const start = useCallback(() => {
-    let lastPauseTimestamp;
+    const lastPauseTimestamp = pauseTimestampRef.current;
 
-    setPauseTimestamp((current) => {
-      lastPauseTimestamp = current;
-      if (current === null) {
-        GlobalLog.warn(`Data Logger already started.`, { current });
-        return current;
-      } else {
-        return null;
-      }
+    if (lastPauseTimestamp === null) {
+      GlobalLog.warn(`Data Logger already started.`, { current: lastPauseTimestamp });
+      return;
+    }
+
+    setPauseTimestamp(null);
+
+    const timeDifference = dayjs().valueOf() - lastPauseTimestamp;
+    GlobalLog.debug(`Correcting Data Log timestamps by pause time ${timeDifference}ms`, {
+      timeDifference,
+      lastPauseTimestamp,
     });
 
-    if (lastPauseTimestamp) {
-      const timeDifference = dayjs().valueOf() - lastPauseTimestamp;
-      GlobalLog.debug(`Correcting Data Log timestamps by pause time ${timeDifference}ms`, {
-        timeDifference,
-        lastPauseTimestamp,
-      });
-
-      setLiveDataLog((current) =>
-        current.map((datum) => {
-          if (datum === null) {
-            return datum;
-          }
-          // 3000 to create a small gap
-          datum.correctedTimestamp = datum.correctedTimestamp + timeDifference - 3000;
-          return datum;
-        })
-      );
-    }
-  }, [setPauseTimestamp, setLiveDataLog]);
+    // New array so the charts re-parse the shifted timestamps
+    logRef.current = logRef.current.map((datum) => {
+      if (datum === null) {
+        return datum;
+      }
+      // 3000 to create a small gap
+      datum.correctedTimestamp = datum.correctedTimestamp + timeDifference - 3000;
+      return datum;
+    });
+    emit('replace');
+  }, [emit]);
 
   const contextValue = useMemo(
     () => ({
-      liveDataLog,
-      isPaused: liveDataLog.length ? pauseTimestamp !== null : null,
+      logRef,
+      subscribe,
+      isPaused: hasData ? pauseTimestamp !== null : null,
       stop,
       reset,
       start,
     }),
-    [liveDataLog, pauseTimestamp, stop, reset, start]
+    [hasData, pauseTimestamp, subscribe, stop, reset, start]
   );
 
   useEffect(() => {
@@ -154,21 +176,24 @@ const DataLoggerProvider = ({
         speed: additionalData?.speed && additionalData?.speed > 1 ? additionalData.speed : null,
       };
 
-      setLiveDataLog((current) => {
-        if (current.length > LOG_LIMIT) {
-          GlobalLog.warn(`For perfomnce reasons flushing old data logs.`);
+      const log = logRef.current;
+      log.push(datum);
 
-          return [...current, datum].slice(-LOG_LIMIT + LOG_LIMIT / 4);
-        } else {
-          return [...current, datum];
-        }
-      });
+      if (log.length > LOG_LIMIT) {
+        GlobalLog.warn(`For perfomnce reasons flushing old data logs.`);
+
+        // In place, so charts only get a cheap splice notification
+        log.splice(0, log.length - (LOG_LIMIT - LOG_LIMIT / 4));
+      }
+
+      setHasData(true);
+      emit('append');
     }
   }, [liveData, pauseTimestamp]);
 
   useEffect(() => {
     if (status === 'disconnected') {
-      if (liveDataLog.length && pauseTimestamp === null) {
+      if (logRef.current.length && pauseTimestamp === null) {
         stop();
       }
     } else if (status === 'connected') {
@@ -179,8 +204,9 @@ const DataLoggerProvider = ({
   }, [status]);
 
   useEffect(() => {
-    if (liveDataLog.length && pauseTimestamp) {
-      setLiveDataLog((current) => [...current, null]);
+    if (logRef.current.length && pauseTimestamp) {
+      logRef.current.push(null);
+      emit('append');
     }
   }, [pauseTimestamp]);
 

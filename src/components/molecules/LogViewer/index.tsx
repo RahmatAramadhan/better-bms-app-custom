@@ -5,6 +5,7 @@ import LogItem from './LogItem';
 import { LogCount, LogViewerContainer, ScrollContainer } from './styles';
 
 export type LogType = [number, string, ILogLevel['name'], LOG_SCOPES, string];
+type PendingLog = LogType extends [number, ...infer Rest] ? Rest : never;
 
 const LogViewer = () => {
   const isHandlerSet = useRef(false);
@@ -13,31 +14,48 @@ const LogViewer = () => {
   const ignoreScrolls = useRef<number>(0);
   const [logs, setLogs] = useState<LogType[]>(() => []);
 
+  // Decoding logs several lines per BMS frame. Buffer them and render in batches
+  // instead of re-rendering the whole list for every single line.
+  const pendingLogs = useRef<PendingLog[]>([]);
+  const nextKey = useRef(1);
+  const flushTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushLogs = useCallback(() => {
+    flushTimeout.current = null;
+    const pending = pendingLogs.current;
+    pendingLogs.current = [];
+    if (!pending.length) return;
+
+    setLogs((current) => {
+      const added = pending.map((rest) => [nextKey.current++, ...rest] as LogType);
+
+      if (current.length + added.length > 500) {
+        UILog.info(`For performance reasons flushing ${500 - 100} oldest logs`);
+        return [...current, ...added].slice(-400);
+      }
+
+      return [...current, ...added];
+    });
+  }, [setLogs]);
+
   const addLog = useCallback(
     (date: string, level: ILogLevel['name'], scope: LOG_SCOPES, message: string) => {
-      setLogs((current) => {
-        const key = (current[current.length - 1]?.[0] || 0) + 1;
-        const log = [key, date, level, scope, message] as LogType;
+      pendingLogs.current.push([date, level, scope, message]);
 
-        if (current.length > 10000) {
-          try {
-            GlobalLog.info(`Clearing browser console to allow garbage collection`, { current });
-
-            console.clear();
-          } catch (e) {
-            //
-          }
-        }
-
-        if (current.length > 500) {
-          UILog.info(`For performance reasons flushing ${500 - 100} oldest logs`, { current });
-          return [...current, log].slice(-400);
-        }
-
-        return [...current, log];
-      });
+      if (flushTimeout.current === null) {
+        flushTimeout.current = setTimeout(flushLogs, 250);
+      }
     },
-    [setLogs, scrollContainerRef]
+    [flushLogs]
+  );
+
+  useEffect(
+    () => () => {
+      if (flushTimeout.current !== null) {
+        clearTimeout(flushTimeout.current);
+      }
+    },
+    []
   );
 
   useLayoutEffect(() => {

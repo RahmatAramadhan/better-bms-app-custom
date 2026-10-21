@@ -36,13 +36,13 @@ const Summary = ({ liveData, speed }: SummaryProps) => {
 
   const mileage = useMemo(() => {
     if (speed && speed > 1.5 && liveData.power >= 100) {
-      const avgPower = (previousLiveData?.power ?? liveData.power) + liveData.power / 2;
+      const avgPower = ((previousLiveData?.power ?? liveData.power) + liveData.power) / 2;
 
       return avgPower / speed;
     }
 
     return null;
-  }, [liveData]);
+  }, [liveData, speed]);
 
   const remainingRange = useMemo(() => {
     if (mileage && mileage > 1) {
@@ -55,7 +55,7 @@ const Summary = ({ liveData, speed }: SummaryProps) => {
     }
 
     return null;
-  }, [mileage]);
+  }, [mileage, liveData]);
 
   return (
     <SummaryContainer>

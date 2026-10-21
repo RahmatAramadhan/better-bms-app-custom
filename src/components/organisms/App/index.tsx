@@ -92,17 +92,20 @@ const App = () => {
     captureTimer.current = setTimeout(finishResistanceCapture, 5000);
   }, [finishResistanceCapture]);
 
+  // Read through the ref so these callbacks stay stable and don't re-render QuickToggles per frame
   const prepareDischargeCapture = useCallback(() => {
-    if (liveData?.voltages) captureBaseline.current = [...liveData.voltages];
-  }, [liveData]);
+    const voltages = liveDataRef.current?.voltages;
+    if (voltages) captureBaseline.current = [...voltages];
+  }, []);
 
   const startPreparedDischargeCapture = useCallback(() => {
     if (captureBaseline.current) startResistanceCapture(captureBaseline.current);
   }, [startResistanceCapture]);
 
   const captureResistanceAgain = useCallback(() => {
-    if (liveData?.voltages) startResistanceCapture([...liveData.voltages]);
-  }, [liveData, startResistanceCapture]);
+    const voltages = liveDataRef.current?.voltages;
+    if (voltages) startResistanceCapture([...voltages]);
+  }, [startResistanceCapture]);
 
   useEffect(() => {
     if (!resistanceCaptureActive || !liveData || !captureSamples.current) return;

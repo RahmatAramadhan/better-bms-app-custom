@@ -39,7 +39,7 @@ type LineChartProps = {
 const LineChart = ({ duration, frameRate, showGridLines, showXAxisLabels }: LineChartProps) => {
   const chartRef = useRef<ChartJSOrUndefined<'line', LiveDataDatum[]>>();
   const theme = useTheme();
-  const { liveDataLog, isPaused, stop, start, reset } = useDataLogger();
+  const { logRef, subscribe, isPaused, stop, start, reset } = useDataLogger();
   const { status } = useDevice();
 
   const handleLongPress = useCallback(() => {
@@ -48,11 +48,6 @@ const LineChart = ({ duration, frameRate, showGridLines, showXAxisLabels }: Line
       chartRef,
     });
     reset();
-    if (chartRef.current) {
-      // Doesn't work :(
-      chartRef.current.data.datasets.forEach((dataset) => (dataset.data = []));
-      chartRef.current?.clear();
-    }
   }, [reset]);
 
   const handleChartClick = useCallback(
@@ -90,7 +85,7 @@ const LineChart = ({ duration, frameRate, showGridLines, showXAxisLabels }: Line
       datasets: [
         {
           label: 'Speed',
-          data: [],
+          data: logRef.current,
           borderColor: theme.accents_7,
           backgroundColor: 'none',
           parsing: {
@@ -101,7 +96,7 @@ const LineChart = ({ duration, frameRate, showGridLines, showXAxisLabels }: Line
         },
         {
           label: 'Voltage',
-          data: [],
+          data: logRef.current,
           borderColor: theme.success,
           backgroundColor: 'none',
           parsing: {
@@ -112,7 +107,7 @@ const LineChart = ({ duration, frameRate, showGridLines, showXAxisLabels }: Line
         },
         {
           label: 'Current',
-          data: [],
+          data: logRef.current,
           borderColor: theme.error,
           backgroundColor: 'none',
           parsing: {
@@ -123,7 +118,7 @@ const LineChart = ({ duration, frameRate, showGridLines, showXAxisLabels }: Line
         },
         {
           label: 'Ping',
-          data: [],
+          data: logRef.current,
           borderColor: '#171717',
           borderWidth: 1,
           backgroundColor: 'none',
@@ -136,7 +131,7 @@ const LineChart = ({ duration, frameRate, showGridLines, showXAxisLabels }: Line
         },
       ],
     }),
-    [theme, duration]
+    [theme, duration, logRef]
   );
 
   const options = useMemo<ChartOptions<'line'>>(
@@ -222,12 +217,51 @@ const LineChart = ({ duration, frameRate, showGridLines, showXAxisLabels }: Line
     }
   }, [isPaused]);
 
+  // react-chartjs-2 overwrites dataset data with the memoized prop on re-render.
+  // Point the datasets back at the live log array.
   useEffect(() => {
-    if (chartRef.current) {
-      chartRef.current.data.datasets.forEach((dataset) => (dataset.data = liveDataLog));
-      chartRef.current.update('quiet');
+    const chart = chartRef.current;
+    if (chart && chart.data.datasets.some((dataset) => dataset.data !== logRef.current)) {
+      chart.data.datasets.forEach((dataset) => (dataset.data = logRef.current));
+      chart.update('quiet');
     }
-  }, [liveDataLog]);
+  });
+
+  useEffect(() => {
+    let frame: number | null = null;
+
+    const flush = () => {
+      frame = null;
+      const chart = chartRef.current;
+      // Frozen (hidden) screens catch up on their next update
+      if (chart && chart.canvas.offsetParent !== null) {
+        chart.update('quiet');
+      }
+    };
+
+    const unsubscribe = subscribe((event) => {
+      const chart = chartRef.current;
+      if (!chart) {
+        return;
+      }
+
+      if (event === 'replace') {
+        chart.data.datasets.forEach((dataset) => (dataset.data = logRef.current));
+      }
+
+      // The log array is shared and mutated in place: chart.js only parses new points.
+      if (frame === null) {
+        frame = requestAnimationFrame(flush);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      if (frame !== null) {
+        cancelAnimationFrame(frame);
+      }
+    };
+  }, [subscribe, logRef]);
 
   return (
     <ChartContainer>

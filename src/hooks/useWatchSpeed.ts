@@ -33,21 +33,24 @@ export default function useWatchSpeed({
           enableHighAccuracy: true,
         }
       );
-    } else {
-      if (geolocationWatcherRef.current) {
-        navigator.geolocation.clearWatch(geolocationWatcherRef.current);
-      }
     }
+
+    return () => {
+      if (geolocationWatcherRef.current !== null) {
+        navigator.geolocation.clearWatch(geolocationWatcherRef.current);
+        geolocationWatcherRef.current = null;
+      }
+    };
   }, [status]);
 
   useEffect(() => {
     if (!isFirstMount) {
       if (speed === null) {
+        GlobalLog.info(`Not tracking speed. Milage not available`);
+      } else {
         GlobalLog.info(`Tracking speed (${speed} km/h)`, {
           speed,
         });
-      } else {
-        GlobalLog.info(`Not tracking speed. Milage not available`);
       }
     }
   }, [speed === null]);

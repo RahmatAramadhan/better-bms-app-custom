@@ -41,6 +41,12 @@ registerRoute(
       return false;
     }
 
+    // The v2 build lives in a /v2 sub folder of this app and has its own service worker.
+    // Don't answer its navigations with this build's index.html.
+    if (url.pathname.startsWith(`${process.env.PUBLIC_URL}/v2`)) {
+      return false;
+    }
+
     // If this looks like a URL for a resource, because it contains
     // a file extension, skip.
     if (url.pathname.match(fileExtensionRegexp)) {

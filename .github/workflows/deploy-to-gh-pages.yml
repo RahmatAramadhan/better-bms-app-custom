@@ -2,25 +2,37 @@ name: Build and Deploy to Github Pages
 on:
   push:
     branches:
-      - main
+      - main # deployed to /better-bms-app-custom/
+      - v2 # deployed to /better-bms-app-custom/v2/
 permissions:
   contents: write
 jobs:
   build-and-deploy:
-    concurrency: ci-${{ github.ref }} # Recommended if you intend to make multiple deployments in quick succession.
+    # One shared group so main and v2 deployments never push to gh-pages at the same time
+    concurrency: gh-pages-deploy
     runs-on: ubuntu-latest
     steps:
       - name: Checkout 🛎️
         uses: actions/checkout@v3
 
-      - name: Install and Build 🔧 # This example project is built using npm and outputs the result to the 'build' folder. Replace with the commands required to build your project, or remove this step entirely if your site is pre-built.
+      - name: Install and Build 🔧
         run: |
           yarn install --frozen-lockfile
           CI=false yarn build
         env:
-          PUBLIC_URL: /better-bms-app-custom
+          PUBLIC_URL: ${{ github.ref_name == 'v2' && '/better-bms-app-custom/v2' || '/better-bms-app-custom' }}
 
-      - name: Deploy 🚀
+      - name: Deploy main 🚀
+        if: github.ref_name == 'main'
         uses: JamesIves/github-pages-deploy-action@v4
         with:
-          folder: build # The folder the action should deploy.
+          folder: build
+          # Keep the v2 build when main redeploys the root
+          clean-exclude: v2
+
+      - name: Deploy v2 🚀
+        if: github.ref_name == 'v2'
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: build
+          target-folder: v2

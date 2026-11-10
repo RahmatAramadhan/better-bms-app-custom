@@ -87,6 +87,10 @@ const Details = ({ liveData, dcir, resistanceCaptureActive }: DetailsProps) => {
           <SectionNote>
             {resistanceCaptureActive
               ? 'Measuring...'
+              : dcir.sampleCount
+              ? `avg of ${dcir.sampleCount} frames over ${(dcir.sampleDelay / 1000).toFixed(
+                  1
+                )}s · ${dcir.current.toFixed(1)}A`
               : `(V0 − V${Math.round(dcir.sampleDelay)}ms) / I${Math.round(
                   dcir.sampleDelay
                 )}ms · ${dcir.current.toFixed(1)}A`}

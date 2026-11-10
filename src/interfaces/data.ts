@@ -78,8 +78,10 @@ export type DcirMeasurement = {
   values: Units['ohms'][];
   // Actual time between load being applied and the sample used
   sampleDelay: Units['miliseconds'];
-  // Load current of the sample used
+  // Load current of the sample used (v2: average over the samples)
   current: Units['amps'];
+  // v2: number of frames averaged
+  sampleCount?: number;
   measuredAt: Units['miliseconds'];
 };
 

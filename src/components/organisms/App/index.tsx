@@ -24,10 +24,8 @@ import { useRef } from 'react';
 import { Units } from 'interfaces';
 import { useMemo } from 'react';
 
-// Time after the load is applied at which V and I are sampled for DCIR
-const DCIR_SAMPLE_DELAY = 200;
-// Give up if no frame arrives
-const DCIR_CAPTURE_TIMEOUT = 3000;
+// v2: DCIR is averaged over every BMS frame received during this window
+const DCIR_CAPTURE_TIMEOUT = 5000;
 
 export type Screens = 'Logs' | 'Summary' | 'Settings' | 'Details';
 
@@ -73,25 +71,39 @@ const App = () => {
     setResistanceCaptureActive(false);
     if (!baseline || !samples || !samples.length) return;
 
-    // DCIR = (V0 - V@200ms) / I@200ms, using the BMS frame closest to 200ms after the load was applied.
-    const startedAt = captureStartedAt.current;
-    const sample = samples.reduce((best, candidate) =>
-      Math.abs(candidate.timestamp - startedAt - DCIR_SAMPLE_DELAY) <
-      Math.abs(best.timestamp - startedAt - DCIR_SAMPLE_DELAY)
-        ? candidate
-        : best
-    );
-    const current = Math.abs(sample.current);
-
+    // v2: average DCIR over every frame received during the capture window.
+    // Each cell-voltage drop is paired with the current from the same BMS frame,
+    // which avoids bias when the load current changes during the capture.
     const values = baseline.map((before, cellIndex) => {
-      const after = sample.voltages[cellIndex];
-      if (!before || !after || current < 0.5 || after >= before) return 0;
-      return ((before - after) / current) * 1000;
+      if (!before) return 0;
+
+      const resistanceSamples = samples
+        .map((sample) => {
+          const after = sample.voltages[cellIndex];
+          const current = Math.abs(sample.current);
+          if (!after || current < 0.5 || after >= before) return null;
+          return ((before - after) / current) * 1000;
+        })
+        .filter((resistance): resistance is number => resistance !== null);
+
+      if (!resistanceSamples.length) return 0;
+      return (
+        resistanceSamples.reduce((sum, resistance) => sum + resistance, 0) /
+        resistanceSamples.length
+      );
     });
 
-    const sampleDelay = sample.timestamp - startedAt;
-    setDcirMeasurement({ values, sampleDelay, current, measuredAt: Date.now() });
-    UILog.info(`DCIR captured from frame ${sampleDelay}ms after load, ${current.toFixed(2)}A`);
+    const current =
+      samples.reduce((sum, sample) => sum + Math.abs(sample.current), 0) / samples.length;
+    const sampleDelay = samples[samples.length - 1].timestamp - captureStartedAt.current;
+    setDcirMeasurement({
+      values,
+      sampleDelay,
+      current,
+      sampleCount: samples.length,
+      measuredAt: Date.now(),
+    });
+    UILog.info(`DCIR averaged from ${samples.length} frames, avg ${current.toFixed(2)}A`);
   }, []);
 
   const startResistanceCapture = useCallback(
@@ -132,11 +144,7 @@ const App = () => {
       voltages: [...liveData.voltages],
     });
 
-    // First frame at/after 200ms: the closest one is either this or the previous one
-    if (liveData.timestamp - captureStartedAt.current >= DCIR_SAMPLE_DELAY) {
-      finishResistanceCapture();
-    }
-  }, [liveData, resistanceCaptureActive, finishResistanceCapture]);
+  }, [liveData, resistanceCaptureActive]);
 
   useEffect(() => () => {
     if (captureTimer.current) clearTimeout(captureTimer.current);
